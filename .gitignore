@@ -1,3 +1,9 @@
 __pycache__/
 *.pyc
 .venv/
+
+# The CI workflow is kept locally but not committed: this machine's gh token
+# lacks the workflow scope, so committing it blocks every push. Run
+# `gh auth refresh -h github.com -s workflow`, then remove this line and
+# `git add .github/workflows/test.yml`.
+.github/
