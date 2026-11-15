@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# sip01-search-tui — keyboard-first SIP-01 search for Omarchy.
+#
+# Prompts for a query, shows the results, and opens the chosen one in the
+# browser. Runs inside a floating terminal so the desktop stays visible.
+#
+# The heavy lifting is in sip01_search.py; sip01_format.py renders the
+# results. This wrapper is only the interaction.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# Prefer the installed copy next to this script, then the work checkout.
+find_file() {
+  local name="$1" candidate
+  for candidate in \
+    "$SCRIPT_DIR/$name" \
+    "$HOME/Work/sip01-search/$name" \
+    "/usr/local/lib/sip01-search/$name"; do
+    [[ -f "$candidate" ]] && { echo "$candidate"; return 0; }
+  done
+  return 1
+}
+
+CLI="$(find_file sip01_search.py)" || {
+  echo "sip01-search: the CLI is not installed." >&2
+  echo "Clone SIP-01/sip01-search or add its sip01_search.py to PATH." >&2
+  exit 3
+}
+FORMAT="$(find_file sip01_format.py)" || {
+  echo "sip01-search: sip01_format.py is missing." >&2
+  exit 3
+}
+
+PYTHON="${PYTHON:-python3}"
+
+open_url() {
+  local url="$1"
+  if command -v omarchy-launch-webapp >/dev/null 2>&1; then
+    omarchy-launch-webapp "$url" >/dev/null 2>&1 && return 0
+  fi
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 && return 0
+  fi
+  command -v gio >/dev/null 2>&1 && gio open "$url" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# --- prompt ---------------------------------------------------------------
+# gum needs a TTY: on a pipe or a non-interactive run it returns empty, so
+# fall back to a plain read when there is no terminal.
+if [[ -t 0 ]] && command -v gum >/dev/null 2>&1; then
+  # gum inherits the current theme's styling through omarchy-restart-gum.
+  source omarchy-restart-gum 2>/dev/null || true
+  QUERY="$(gum input --placeholder "Search the decentralized index…" --prompt "SIP-01 › " 2>/dev/null)"
+else
+  printf "SIP-01 › "
+  read -r QUERY
+fi
+
+[[ -z "${QUERY// }" ]] && exit 0
+
+RESULTS="$("$PYTHON" "$CLI" "$QUERY" --limit 10 --json 2>/dev/null)"
+if [[ -z "$RESULTS" ]]; then
+  echo "The index could not be reached." >&2
+  exit 3
+fi
+
+echo
+"$PYTHON" "$FORMAT" list <<<"$RESULTS"
+echo
+
+# --- pick -----------------------------------------------------------------
+CHOICE=""
+if [[ -t 0 ]] && command -v gum >/dev/null 2>&1; then
+  CHOICE="$("$PYTHON" "$FORMAT" choose <<<"$RESULTS" \
+    | gum choose --header "Open which result?" 2>/dev/null | head -1 | cut -d' ' -f1)"
+  [[ -z "$CHOICE" ]] && exit 0
+else
+  printf "Open which result? [1-10] "
+  read -r CHOICE
+fi
+
+URL="$("$PYTHON" "$FORMAT" url "${CHOICE:-1}" <<<"$RESULTS")"
+[[ -z "$URL" ]] && exit 1
+
+if open_url "$URL"; then
+  echo "Opened: $URL"
+else
+  echo "$URL"
+fi
