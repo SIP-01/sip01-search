@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# sip01-search — search the decentralized SIP-01 web index.
+#
+# The relay client in the nostr skill needs the websockets module, which is
+# not in the system python on every machine. So pick a python that has it:
+# the Hermes environments first, then the system python as a last resort.
+set -eu
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Installed layout: the launcher lives in ~/.local/bin and the modules in
+# ~/.local/lib. Repository layout: everything sits next to each other.
+if [[ -f "$here/sip01_search.py" ]]; then
+    LIB="$here"
+else
+    LIB="${SIP01_SEARCH_LIB:-$HOME/.local/lib/sip01-search}"
+fi
+
+pick_python() {
+    # An explicit override always wins.
+    if [[ -n "${SIP01_PYTHON:-}" ]]; then
+        echo "$SIP01_PYTHON"
+        return
+    fi
+    for candidate in "$HOME"/.hermes/installs/*/environments/*/venv/bin/python3; do
+        [[ -x "$candidate" ]] || continue
+        if "$candidate" -c "import websockets" 2>/dev/null; then
+            echo "$candidate"
+            return
+        fi
+    done
+    if command -v python3 >/dev/null && python3 -c "import websockets" 2>/dev/null; then
+        command -v python3
+        return
+    fi
+    echo "python3"
+}
+
+PYTHON="$(pick_python)"
+exec "$PYTHON" "$LIB/sip01_search.py" "$@"
