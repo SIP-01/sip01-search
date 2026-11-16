@@ -65,6 +65,15 @@ SKILL_ROOTS = [
     Path.home() / ".hermes" / "skills",
 ]
 
+# A checkout of a skill repository, as CI clones one. The scripts inside are
+# the same ones a Hermes install puts under ~/.hermes/skills, so pointing at
+# the checkout lets the tool run without a Hermes install.
+for _var, _repo in (("SIP01_SKILL_ROOT", "sip-01-skill"), ("NOSTR_SKILL_ROOT", "nostr-skill")):
+    _root = os.environ.get(_var, "").strip()
+    if _root:
+        SKILL_ROOTS.append(Path(_root))
+        SKILL_ROOTS.append(Path(_root) / "skills")
+
 _HINT = (
     "install it with: hermes skills install SIP-01/sip-01-skill/ "
     "and hermes skills install NostrDanish/nostr-skill/"
@@ -75,10 +84,16 @@ def _find_skill_script(skill_dirs: list[str], filename: str) -> Path | None:
     for root in SKILL_ROOTS:
         if not root.is_dir():
             continue
+        # A Hermes install lays skills out as <root>/<skill>/scripts/<file>,
+        # so look for the skill directory by name.
         for skill_dir in skill_dirs:
             candidate = root / skill_dir / "scripts" / filename
             if candidate.is_file():
                 return candidate
+        # A checkout of a skill repository puts its scripts at <root>/scripts.
+        candidate = root / "scripts" / filename
+        if candidate.is_file():
+            return candidate
         for category in root.iterdir():
             if not category.is_dir():
                 continue
