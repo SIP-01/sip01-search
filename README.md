@@ -107,6 +107,29 @@ answers. This mirrors the design in
 Ranking order: local relevance, then independent indexer count, then
 recency.
 
+## Verification
+
+Observations are verified against the SIP-01 spec §18 step 2 before they are
+shown:
+
+- the `d` tag must equal `widx:` + the first 32 hex characters of
+  `sha256(normalized_url)`, so an observation cannot claim to be a page it is
+  not
+- the `x` tag, when present, must equal `sha256(title + "\n" + description)`
+
+Observations that fail are discarded and counted in `invalid_dropped`, which
+appears in the JSON output and in the footer of the human-readable output, so
+a lossy run does not look like a clean one. A live run currently discards
+around 30 observations out of several thousand.
+
+The checks come from the `sip-01` Agent Skill's `validate_event` — the same
+implementation the rest of the ecosystem uses, not a second copy in this tool.
+
+Verification runs against the **raw** observed text, before any HTML
+stripping or whitespace collapsing. The hash covers what the indexer saw, not
+what the terminal displays: cleaning first and hashing second rejects
+perfectly good observations.
+
 ## Omarchy
 
 `sip01-search-tui` is a keyboard-first wrapper: it prompts with `gum`, shows

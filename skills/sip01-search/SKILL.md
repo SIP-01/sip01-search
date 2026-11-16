@@ -20,6 +20,25 @@ Do not use it to publish observations (that is a crawler's job, and it needs a
 trusted signer) or as the authoritative source for SIP-01 protocol rules —
 verify those against the spec repo.
 
+## Verification
+
+Every observation is verified against the SIP-01 spec §18 step 2 before it is
+shown:
+
+- the `d` tag must equal `widx:` + the first 32 hex characters of
+  `sha256(normalized_url)` — so an observation cannot claim to be a page it
+  is not
+- the `x` tag, when present, must equal `sha256(title + "\n" + description)`
+
+Observations that fail are discarded and counted in `invalid_dropped`, so a
+lossy run does not look like a clean one. Verification runs against the
+**raw** observed text, before any HTML stripping or whitespace collapsing —
+the hash covers what the indexer saw, not what the terminal displays. A
+consumer that cleans first and hashes second rejects good observations.
+
+The checks come from the `sip-01` skill's `validate_event`, not from a second
+implementation in this tool.
+
 ## Prerequisites
 
 The CLI loads the `sip-01` and `nostr` Agent Skills at runtime for URL

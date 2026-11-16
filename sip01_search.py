@@ -138,9 +138,33 @@ async def _query(relay: str, filter_obj: dict, timeout: float) -> dict:
 
 
 def _parse_observation(event: dict) -> dict | None:
-    """Turn a kind 39697 event into a result row, or None if it is malformed."""
+    """Turn a kind 39697 event into a result row, or None if it is malformed.
+
+    The event is verified before anything is cleaned or shown (SIP-01 §18
+    step 2): the `d` tag must match the normalized `u` tag, and the `x` tag
+    must match the raw content. Cleaning happens afterwards, because the
+    hash covers the observed text, not the display text.
+    """
     if event.get("kind") != WEB_INDEX_KIND:
         return None
+
+    # Verify the raw event first — before any text is stripped, collapsed or
+    # otherwise changed. A consumer that cleans first and hashes second
+    # will reject perfectly good observations.
+    #
+    # If the spec module cannot be loaded, fail closed: an unverified
+    # observation is not shown. A search that silently skips the check is
+    # worse than one that refuses to answer.
+    spec = _sip01()
+    if spec is None:
+        raise RuntimeError(
+            "the sip-01 skill's protocol module is missing — "
+            f"cannot verify observations. {_HINT}"
+        )
+    verdict = spec.validate_event(event)
+    if not verdict.get("valid"):
+        return None
+
     tags: dict[str, str] = {}
     for tag in event.get("tags", []):
         if isinstance(tag, list) and len(tag) > 1 and isinstance(tag[0], str):
@@ -280,6 +304,7 @@ async def search(
     hits: dict[str, dict] = {}
     relay_status: list[dict] = []
     complete = False
+    invalid = 0
 
     for relay in relays:
         try:
@@ -297,6 +322,9 @@ async def search(
         for event in result.get("events", []):
             parsed = _parse_observation(event)
             if parsed is None:
+                # Failed the spec §18 check — dropped, and counted so the
+                # drop is visible rather than silent.
+                invalid += 1
                 continue
             # Group by document id (spec §2.1): independent indexers observing
             # the same page are agreement, and the distinct-author count is the
@@ -344,10 +372,13 @@ async def search(
         "hit_count": len(rows[:limit]),
         "total_documents": len(rows),
         "complete": complete,
+        "invalid_dropped": invalid,
         "relays": relay_status,
         "note": (
             "complete=true means at least one relay returned EOSE with a NIP-67 finish hint. "
-            "'unknown' means the result set may be incomplete."
+            "'unknown' means the result set may be incomplete. "
+            "invalid_dropped counts observations that failed the SIP-01 §18 check "
+            "(d vs normalized u, x vs content) and were discarded."
         ),
     }
 
@@ -359,12 +390,19 @@ async def search(
 
 def _human(result: dict) -> str:
     hits = result.get("hits", [])
+    footer = []
+    invalid = result.get("invalid_dropped", 0)
+    if invalid:
+        footer.append(f"{invalid} observation(s) failed the SIP-01 §18 check and were discarded")
     if not hits:
-        return (
+        body = (
             "No results.\n"
             f"  relays tried: {', '.join(r['relay'] for r in result.get('relays', [])) or 'none'}\n"
             "  The SIP-01 index is community-run and may not have this page yet."
         )
+        if footer:
+            body += "\n  " + "\n  ".join(footer)
+        return body
     lines = []
     for i, hit in enumerate(hits, 1):
         marker = f" [{hit['indexers']}x]" if hit.get("indexers", 0) > 1 else ""
@@ -376,6 +414,9 @@ def _human(result: dict) -> str:
             lines.append(f"    lang={hit['lang']}  d={hit['d']}")
         else:
             lines.append(f"    d={hit['d']}")
+    if footer:
+        lines.append("")
+        lines.extend(footer)
     return "\n".join(lines)
 
 
