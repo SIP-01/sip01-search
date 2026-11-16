@@ -410,7 +410,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--open", type=int, metavar="N", help="open result N in the browser")
     parser.add_argument("--relays", action="store_true", help="show the index relays and their capabilities")
     parser.add_argument("--selftest", action="store_true", help="run the SIP-01 protocol self-test")
+    parser.add_argument("--dump", action="store_true",
+                        help="fetch the whole index as JSON (no query), for the local search engine")
     args = parser.parse_args(argv)
+
+    if args.dump:
+        # The native search app keeps its own corpus and ranks locally, so it
+        # needs every observation, not just the matches for one query.
+        try:
+            result = asyncio.run(search("", limit=5000, timeout=args.timeout))
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except Exception as exc:
+            print(f"dump failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 3
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get("hits") else 1
 
     if args.selftest:
         sip = _sip01()
